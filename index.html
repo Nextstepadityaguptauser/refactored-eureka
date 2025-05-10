@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Survivor vs Zombies</title>
+  <style>
+    canvas { background: #222; display: block; margin: auto; margin-top: 40px; }
+    body { color: white; text-align: center; font-family: Arial; background: #111; }
+  </style>
+</head>
+<body>
+  <h1>Survivor vs Zombies</h1>
+  <p>Score: <span id="score">0</span></p>
+  <p>Health: <span id="health">100</span></p>
+  <canvas id="game" width="600" height="400"></canvas>
+
+  <audio id="shootSound" src="https://actions.google.com/sounds/v1/impacts/wood_plank_flicks.ogg" preload="auto"></audio>
+  <audio id="hitSound" src="https://actions.google.com/sounds/v1/cartoon/cartoon_boing.ogg" preload="auto"></audio>
+  <audio id="bgMusic" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" autoplay loop preload="auto"></audio>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const healthEl = document.getElementById("health");
+    const shootSound = document.getElementById("shootSound");
+    const hitSound = document.getElementById("hitSound");
+    const bgMusic = document.getElementById("bgMusic");
+
+    bgMusic.volume = 0.3;
+    bgMusic.play();
+
+    const player = { x: 300, y: 200, size: 30, speed: 3, health: 100 };
+    const bullets = [];
+    const zombies = [];
+    const keys = {};
+    let score = 0;
+
+    document.addEventListener("keydown", (e) => keys[e.key] = true);
+    document.addEventListener("keyup", (e) => keys[e.key] = false);
+
+    function spawnZombie() {
+      const side = Math.floor(Math.random() * 4);
+      const size = 20;
+      let x, y;
+      if (side === 0) { x = 0; y = Math.random() * canvas.height; }
+      else if (side === 1) { x = canvas.width; y = Math.random() * canvas.height; }
+      else if (side === 2) { y = 0; x = Math.random() * canvas.width; }
+      else { y = canvas.height; x = Math.random() * canvas.width; }
+      const speed = 1.2 + score * 0.05;
+      zombies.push({ x, y, size, speed });
+    }
+
+    function shootBullet() {
+      const mouseAngle = Math.atan2(mouseY - (player.y + player.size / 2), mouseX - (player.x + player.size / 2));
+      const speed = 6;
+      bullets.push({
+        x: player.x + player.size / 2,
+        y: player.y + player.size / 2,
+        dx: Math.cos(mouseAngle) * speed,
+        dy: Math.sin(mouseAngle) * speed
+      });
+      shootSound.currentTime = 0;
+      shootSound.play();
+    }
+
+    document.addEventListener("click", shootBullet);
+
+    let mouseX = 0, mouseY = 0;
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+    });
+
+    function movePlayer() {
+      if (keys["ArrowUp"] || keys["w"]) player.y -= player.speed;
+      if (keys["ArrowDown"] || keys["s"]) player.y += player.speed;
+      if (keys["ArrowLeft"] || keys["a"]) player.x -= player.speed;
+      if (keys["ArrowRight"] || keys["d"]) player.x += player.speed;
+    }
+
+    function moveZombies() {
+      for (const z of zombies) {
+        const dx = player.x - z.x;
+        const dy = player.y - z.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        z.x += z.speed * dx / dist;
+        z.y += z.speed * dy / dist;
+      }
+    }
+
+    function moveBullets() {
+      for (const b of bullets) {
+        b.x += b.dx;
+        b.y += b.dy;
+      }
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = "#00ffcc";
+      ctx.beginPath();
+      ctx.arc(player.x + player.size/2, player.y + player.size/2, player.size/2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "black";
+      ctx.fillRect(player.x + player.size/2, player.y + player.size/2 - 2, 10, 4); // simple gun shape
+    }
+
+    function drawZombies() {
+      ctx.fillStyle = "red";
+      for (const z of zombies) {
+        ctx.fillRect(z.x, z.y, z.size, z.size);
+      }
+    }
+
+    function drawBullets() {
+      ctx.fillStyle = "yellow";
+      for (const b of bullets) {
+        ctx.fillRect(b.x, b.y, 5, 5);
+      }
+    }
+
+    function checkCollision() {
+      for (let i = zombies.length - 1; i >= 0; i--) {
+        const z = zombies[i];
+        const dx = player.x - z.x;
+        const dy = player.y - z.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < player.size) {
+          player.health -= 10;
+          healthEl.innerText = player.health;
+          zombies.splice(i, 1);
+          if (player.health <= 0) return true;
+        }
+      }
+      return false;
+    }
+
+    function handleBulletHits() {
+      for (let i = zombies.length - 1; i >= 0; i--) {
+        const z = zombies[i];
+        for (let j = bullets.length - 1; j >= 0; j--) {
+          const b = bullets[j];
+          if (b.x >= z.x && b.x <= z.x + z.size && b.y >= z.y && b.y <= z.y + z.size) {
+            zombies.splice(i, 1);
+            bullets.splice(j, 1);
+            hitSound.currentTime = 0;
+            hitSound.play();
+            score++;
+            scoreEl.innerText = score;
+            break;
+          }
+        }
+      }
+    }
+
+    let gameOver = false;
+    let lastSpawn = 0;
+
+    function gameLoop(timestamp) {
+      if (gameOver) {
+        ctx.fillStyle = "white";
+        ctx.font = "30px Arial";
+        ctx.fillText("Game Over", 220, 200);
+        return;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      movePlayer();
+      moveZombies();
+      moveBullets();
+      drawPlayer();
+      drawZombies();
+      drawBullets();
+      handleBulletHits();
+
+      if (checkCollision()) {
+        gameOver = true;
+        bgMusic.pause();
+      }
+
+      if (timestamp - lastSpawn > 1500) {
+        spawnZombie();
+        lastSpawn = timestamp;
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
